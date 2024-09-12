@@ -1,0 +1,460 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{fullpage}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xspace}
+\usepackage{xcolor}
+
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+\newcommand{\blue}[1]{\textcolor{blue}{#1}}
+
+\usepackage[ruled,linesnumbered,commentsnumbered,noend]{algorithm2e}
+  \SetKwInput{KwData}{Var}
+  \SetKwInput{KwInit}{Init}
+  \SetKwComment{comment}{$\LHD$}{}
+  \SetKwInOut{Input}{Input}
+  \SetKwInOut{Output}{Output}
+  \DontPrintSemicolon
+
+\newcommand{\rlive}{\textsf{rlive}\xspace}
+\newcommand{\icccia}{\textsf{ic3ia}}
+\newcommand{\iccciafixed}{\textsf{ic3ia-fixed}}
+\newcommand{\iccciaabs}{\textsf{ic3ia-abs}}
+\newcommand{\iccc}{\textsf{ic3}}
+\newcommand{\concr}{\textsf{concretize}}
+\newcommand{\mca}{\ensuremath{\textsf{model-check}_\alpha}}
+\newcommand{\mc}{\textsf{model-check}}
+\newcommand{\abs}[1]{\ensuremath{\widehat{#1}}}
+\newcommand{\absproc}{\textsf{abstract}}
+\newcommand{\preds}{\ensuremath{\mathbb{P}}}
+\newcommand{\N}{\ensuremath{\mathbb{N}}}
+
+\newcommand{\mcconc}{\textsf{model-check-concrete}}
+\newcommand{\mcabs}{\textsf{model-check-abstract}}
+\newcommand{\getmcinv}{\textsf{get-mc-inv}}
+\newcommand{\getmccex}{\textsf{get-mc-cex}}
+\newcommand{\getabsmccex}{\textsf{get-abs-mc-cex}}
+\newcommand{\getrliveshoals}{\textsf{get-rlive-shoals}}
+\newcommand{\getrlivecex}{\textsf{get-rlive-cex}}
+\newcommand{\feasible}{\textsf{feasible}}
+\newcommand{\feasibleloop}{\textsf{feasible-loop}}
+\newcommand{\refine}{\textsf{refine}}
+\newcommand{\synthrank}{\textsf{synth-rank-function}}
+
+\begin{document}
+
+\title{Infinite-state rlive}
+\author{Christopher Johannsen}
+\maketitle
+
+\section{Preliminaries}
+
+We focus on model checking of infinite state systems. A system is defined as $S = \langle X,I,T
+\rangle$ where $X$ is a set of variables, $I$ is a one-state formula over $X$ defining the initial
+condition and $T$ is a two-state formula over $X,X'$ defining the transition relation where $X' =
+\{x'\}_{x \in X}$ is a set of next-state variables. A trace $\pi = s_0,s_1,\dots$ of the system $S$
+is a sequence of states such that $s_0 \models I$ and $s_i \land T \models s_{i+1}'$. 
+
+\subsection{Invariant Model checking}
+
+The invariant model checking problem asks whether a property $P$ holds in all reachable states of a
+system $S = \langle I,T \rangle$. A procedure $\mc(I,T,P)$ will return a finite trace $\pi =
+s_0,s_1,\dots,s_n$ of $S$ where $s_n \models \neg P$, or an inductive invariant $inv$ showing that
+$inv \models P$, $I \models inv$, and $inv \land T \models inv'$.
+
+\subsection{Abstract Invariant Model Checking}
+
+Abstract model checking takes a concrete system and a set of predicates \preds{} then returns either
+the result \emph{unsafe} and an abstract trace $\abs{\pi} = \abs{s_0},\abs{s_1},\dots$ over \preds{}
+that violates the property or the result \emph{safe} and an inductive invariant $\abs{inv}$ over
+\preds.
+
+We assume access to a procedure $\mcabs(I,T,P,\preds)$ that returns an abstract trace $\abs{\pi}$ in
+case of violation of $P$ or an inductive invariant $inv$ over \preds{} otherwise. 
+
+\subsection{Liveness Checking}
+
+We focus on properties of the form $FGq$, i.e., liveness properties. The problem under consideration
+is whether some system $S$ satisfies a property $P = FGq$, in other words, we compute $S \models
+FGq$. When $S$ is finite, $S \nvDash FGq$ if and only if there exists a loop $\alpha \cdot
+\beta^\omega$ in $S$ where some state $b \in \beta$ is such that $b \models \neg q$. If $S$ is
+infinite, then the existence of a loop $\alpha \cdot \beta^\omega$ proves that $S \nvDash FGq$, but
+there may be other non-loop counterexamples.
+
+\subsection{\rlive}
+
+One algorithm for checking liveness properties is \rlive. As opposed to other algorithms
+(Liveness-to-safety, FAIR, k-liveness, k-FAIR), \rlive performs a depth-first search for a loop that
+violates $FGq$, i.e., one that satisfies $GF \neg q$. 
+
+The algorithm incrementally searches for a path that satisfies $\neg q$ infinitely often via a
+series of invariant model checking queries. If the algorithm determines that $\neg q$ is unreachable
+from the current state in the search, \rlive adds the newly-found inductive invariant to a set of
+states known as \emph{shoals}, otherwise it reaches another state $s$ that satisfies $\neg q$. If
+$s$ has already been seen, then a loop satisfying $GF\neg q$ as been found, so \rlive terminates
+with \emph{unsafe}. Otherwise \rlive adds this state to its stack and continues the search. The
+algorithm terminates with \emph{safe} once it shows that the initial set of states is in the
+\emph{shoals}. We present a version of the algorithm in Figure~\ref{alg:rlive}.
+
+\begin{algorithm}[t]
+\SetKwFunction{KwFn}{Procedure \textsf{rlive}}
+\KwFn{$I$, $T$, $FGq$, $C_{init}$}
+\Begin{
+    $C := C_{init}$ \tcp{initial shoals}
+    $B := $ empty stack of states \;
+    \While{$\mcconc(I, T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C))$ is unsafe}{
+        $s := $ final state of \getmccex() \;
+        $B.push(s)$ \;
+        \While{$B$ is not empty}{
+            $s := B.top()$ \;
+            \If{$s \in B$}{
+                \Return{(Unsafe, $C$)}
+            } 
+            \If{$\mcconc(T(s), T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C))$ is unsafe} {
+                $t := $ final state of \getmccex() \;
+                $B.push(t)$ \;
+            } \Else {
+                $inv := \getmcinv()$ \;
+                $C := C \lor inv$ \; 
+                $B.pop()$ \;
+            }
+        }
+    }
+    \Return{Safe}
+}
+\caption{\rlive algorithm}
+\label{alg:rlive}
+\end{algorithm}
+
+\section{Algorithms}
+
+Here we give an overview of the proposed algorithms.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\textbf{Alg.} & \textbf{Model Abstraction} & \textbf{Refinement} & \textbf{Predicates} \\ 
+\hline \hline
+Basic         & N/A                        & N/A                 & N/A                 \\ \hline
+EA-LR         & Explicit                   & Lazy                & Global              \\ \hline
+IA-LR         & Implicit                   & Lazy                & Global              \\ \hline
+IA-ER         & Implicit                   & Eager               & Global              \\ \hline
+IA-ER*        & Implicit                   & Eager               & Local               \\ \hline
+\end{tabular}
+\end{table}
+
+\begin{description}
+    \item[Basic] runs \rlive as it is, except over the infinite state system. Functionally
+    this means that a model checker will use SMT queries rather than SAT ones.
+
+    \item[EA-LR] constructs an abstract system $\abs{S} = \langle \abs{I}, \abs{T} \rangle$
+    explicitly over a fixed set of predicates $\preds$, using techniques like ALLSAT, then standard
+    \rlive on the abstract system. If the query returns safe or a feasible counterexample, the
+    corresponding result is returned. If the query returns an infeasible counterexample, the set of
+    predicates is refined to eliminate this counterexample, the process is repeated with the newly
+    refined set of predicates.
+
+    \item[IA-LR] is the same as Algorithm 1 except that it uses implicit abstraction to
+    avoid explicitly computing the abstract model.
+    
+    \item[IA-ER] performs model checking on the abstract state space using implicit
+    abstraction, but checks that each resulting abstract counterexample is feasible. 
+    
+    \item[IA-ER*] uses a local set of predicates for each model checking query. In other words,
+    the model checker returns both a counterexample and an updated set of predicates in the case of
+    a violation, and the returned set of predicates is used as the initial set of predicates for the
+    next model checking query. 
+\end{description}
+
+% Another candidate -- concrete model checking on abstract I,q and concrete T
+
+% For algorithms 1-3, we must define functions \feasible{} and \refine{} for checking and blocking
+% spurious counterexamples. In particular, \feasible{} will take as input $I$, $T$, \preds and
+% $\abs{\pi}$ and output true/false while \refine{} will take as input $I$, $T$, \preds, and
+% $\abs{\pi}$ and output a formula $R_T$ and new set of predicates \preds' such that 
+
+The algorithms assume access to a procedure \mc($I$,$T$,$P$) that performs model checking for
+property $P$ and returns a concrete counterexample in the case of violation, as well as
+\mca($I$,$T$,$P$) that returns an abstract counterexample. \mca{} can also optionally take a set of
+initial predicates as in \mca($I$,$T$,$P$,\preds). The procedure \absproc($\phi$, \preds) explicitly
+constructs an abstract formula $\abs{\phi}$ using the predicates in \preds. \getrlivecex{} returns
+the counterexample from \rlive{} separated into its prefix and lasso portions.
+
+\begin{algorithm}[t]
+\SetKwFunction{KwFn}{Procedure $\textsf{rlive}_{\textsf{EA-LR}}$}
+\KwFn{$I$, $T$, $FGq$}
+\Begin{
+    $\preds := $ predicate symbols in $I$, $q$ \;
+    $R_T,\abs{R_T} := true$ \tcp{formula for $T$ refinement}
+    $\abs{I} := \absproc(I,\preds)$, $\abs{T} := \absproc(T,\preds)$, $\abs{q} := \absproc(q,\preds)$ \;
+    $C := false$ \tcp{initialize shoals}
+    \While{$\rlive(\abs{I},\abs{T} \land \abs{R_T},FG \abs{q}, C)$ is unsafe}{
+        $C := \getrliveshoals()$ \; 
+        $\abs{\pi_\alpha},\abs{\pi_\beta} := \getrlivecex()$ \;
+        \If{$\feasible(T \land R_T, \preds, \abs{\pi_\alpha})$ and $\feasibleloop(T, \preds, \abs{\pi_\beta})$} {
+            \Return{Unsafe}
+        } 
+        $R_T,\preds := \textsf{refine}(T,\preds,\abs{\pi})$ \;
+        $\abs{I} := \absproc(I,\preds)$, $\abs{T} := \absproc(T,\preds)$, \; 
+        $\abs{q} := \absproc(q,\preds)$, $\abs{R_T} := \absproc(R_T,\preds)$ \;
+    }
+    \Return{Safe}
+}
+\caption{Explicit abstraction, lazy refinement}
+\label{alg:0a}
+\end{algorithm}
+
+\begin{algorithm}[t]
+\SetKwFunction{KwFn}{Procedure $\textsf{rlive}_{\textsf{IA-LR}}$}
+\KwFn{$I$, $T$, $FGq$}
+\Begin{
+    $\preds := $ predicate symbols in $I$, $q$ \;
+    $R_T := true$ \tcp{formula for $T$ refinement}
+    $C := false$ \tcp{initialize shoals}
+    \While{$\textsf{rlive-rec}_{\textsf{IA-LR}}(I,T \land R_T,FGq,\preds,C)$ is unsafe}{
+        $\abs{\pi_\alpha},\abs{\pi_\beta} := \getrlivecex()$ \;
+        \If{$\feasible(T \land R_T, \preds, \abs{\pi_\alpha})$ and $\feasibleloop(T, \preds, \abs{\pi_\beta})$} {
+            \Return{Unsafe}
+        } 
+        $R_T,\preds := \textsf{refine}(I,T \land R_T,\preds,\abs{\pi})$ \;
+        $C := \getrliveshoals()$ \; 
+    }
+    \Return{Safe}
+}
+\;
+\SetKwFunction{KwFn}{Procedure $\textsf{rlive-rec}_{\textsf{IA-LR}}$}
+\KwFn{$I$, $T$, $FGq$, $C$}
+\Begin{
+    $\abs{B} := $ empty stack of abstract states \;
+    \While{$\mcabs(I, T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe}{
+        $\abs{s} := $ final state of $\getabsmccex()$ \;
+        $\abs{B}.push(\abs{s})$ \;
+        \While{$\abs{B}$ is not empty}{
+            $\abs{s} := \abs{B}.top()$ \;
+            \If{$\abs{s} \in \abs{B}$}{
+                \Return{(Unsafe, $C$)}
+            } 
+            \If{$\mcabs(\concr(\abs{T}(\abs{s})), T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe} {
+                $\abs{t} := $ final state of $\getabsmccex()$ \;
+                $\abs{B}.push(\abs{t})$ \;
+            } \Else {
+                $\abs{B}.pop()$ \;
+                $inv := \concr(\getmcinv())$ \;
+                $C := C \lor inv$ \; 
+            }
+        }
+    }
+    \Return{Safe}
+}
+\caption{Implicit abstraction, lazy refinement}
+\label{alg:0b}
+\end{algorithm}
+
+This is similar to the previous algorithm except we do \emph{eager refinement}, i.e., we check that
+each path segment of the loop is feasible before continuing. If any path segment is infeasible, we
+return to the CEGAR loop and refine. Otherwise, we continue until we find an abstract loop of the
+form:
+$$
+    \abs{\pi_0} \cdot \abs{\pi_1} \cdots \abs{\pi_i} \cdots \abs{\pi_j}
+$$
+where the first state of $\abs{\pi_i}$ is the same as the last state of $\abs{\pi_j}$:
+$\abs{\pi_i}[0] = \abs{\pi_j}[-1]$. The algorithm maintains the invariant that $\feasible(I, T,
+\preds, \abs{\pi_k})$ is true for all path segments $k \in 0..j$, but does not guarantee that the
+interfaces between them are feasible. In other words,
+$$
+\feasible(I,T,\preds,\abs{\pi_k}) \land \feasible(I,T,\preds,\abs{\pi_{k+1}}) \not\Rightarrow \feasible(I, T, \preds,
+\abs{\pi_k} \cdot \abs{\pi_{k+1}}).
+$$
+However, the $\feasible$ check on line 21 will check this.
+
+To solve this, we guarantee the feasibility of the full abstract trace found so far during the
+search and check $\feasible(I, T, \preds, \abs{\pi_0} \cdots \abs{\pi_k})$ for each newly found path
+segment $\abs{\pi_k}$.
+
+\begin{algorithm}
+\SetKwFunction{KwFn}{Procedure $\textsf{rlive}_{\textsf{IA-ER}}$}
+\KwFn{$I$, $T$, $FGq$}
+\Begin{
+    $\preds := $ predicate symbols in $I$, $q$ \;
+    \While{$\textsf{rlive-3-rec}(I,T,FGq,\preds)$ is infeasible}{
+        $\abs{\Pi} :=$ infeasible counterexample from \textsf{rlive-3-rec} \;
+        $I,T,\preds := \textsf{refine}(T,\preds,\abs{\Pi})$ \;
+    }
+    \Return{Result from \textsf{rlive-3-rec}}
+}
+\;
+\SetKwFunction{KwFn}{Procedure $\textsf{rlive-rec}_{\textsf{IA-ER}}$}
+\KwFn{$I,T,FGq,\preds$}
+\Begin{
+    $C := false$ \tcp{Shoals}
+    $\abs{B} := $ empty stack of states \;
+    $\abs{\Pi} := \emptyset$ \tcp{empty trace}
+    \While{$\mcabs(I, T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe}{
+        $\abs{\pi} := \getabsmccex()$ \;
+        \If {$\neg \feasible(T \land (\neg C \land \neg C'), \preds, \abs{\pi})$} {
+            \Return{Infeasible $\abs{\pi}$}
+        }
+        $\abs{s} :=$ final state of $\abs{\pi}$ \;
+        $\abs{B}.push(\abs{s})$ \;
+        \While{$\abs{B}$ is not empty}{
+            $\abs{s} := \abs{B}.top()$ \;
+            \If{$\abs{s} \in \abs{B}$}{
+                $\abs{\Pi_\alpha} := \abs{\Pi}$ up to and including $\abs{s}$ \;
+                $\abs{\Pi_\beta} := \abs{\Pi}$ including and after $\abs{s}$ \;
+                \If{$\feasible(T \land (\neg C \land \neg C'),\preds,\abs{\Pi_\alpha})$ and $\feasibleloop(T \land (\neg C \land \neg C'),\preds,\abs{\Pi_\beta})$} {
+                    \Return{Unsafe}
+                } \Else{
+                    \Return{Infeasible $\abs{\Pi}$}
+                }
+            } 
+            \If{$\mcabs(T(s), T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe} {
+                $\abs{\pi} := \getabsmccex()$ \;
+                \If {$\neg \feasible(T \land (\neg C \land \neg C'), \preds, \abs{\Pi} \cdot \abs{\pi})$} {
+                    \Return{Infeasible $\abs{\Pi}$}
+                }
+                $\abs{\Pi} := \abs{\Pi} \cdot \abs{\pi}$ \;
+                $\abs{t} :=$ final state of $\abs{\pi}$ \;
+                $\abs{B}.push(\abs{t})$ \;
+            } \Else {
+                $inv := $ invariant from \mcabs \;
+                $C := C \lor inv$ \; 
+                $\abs{B}.pop()$ \;
+            }
+        }
+    }
+    \Return{Safe}
+}
+\caption{Implicit abstraction, eager refinement}
+\label{alg:3}
+\end{algorithm}
+
+\section{Abstract Counterexample Refinement}
+
+There are four outcomes to consider given a system $S$. Let $\abs{\pi} = \alpha \cdot \beta^\omega$
+be a candidate abstract counterexample.
+
+\begin{enumerate}
+    \item $\exists \pi : \pi = \concr(S,\abs{\pi})$, return such a $\pi$.
+    \item $\not\exists \pi : \pi = \concr(S,\abs{\pi})$, refine predicates to block $\abs{\pi}$.
+    Could use interpolants ala \icccia~\cite{cimatti2016infinite}.
+    \item $\forall k : \exists \pi : \pi = \concr(S,\alpha \cdot \beta^k)$ and $\not\exists \pi :
+    \pi = \concr(S,\alpha \cdot \beta^\omega)$, synthesize a ranking function and use this to block
+    $\abs{\pi}$. We may consider using the techniques presented in \cite{cook2005abstraction}.
+    \item There exists a non-lasso-shaped counterexample, use well-founded funnels to find these.
+\end{enumerate}
+
+The algorithms outlines previously only cover cases 1 and 2, but can be outfitted to handle the
+other cases. For case 3, if we can synthesize such a ranking function, we must refine the system to
+block the abstract loop in the next model checking calls. Let $\abs{\pi_0} \cdot \abs{\pi_1} \cdots
+\abs{\pi_i}$ be an abstract loop made up of path segments such that there exists a ranking function
+$R$ that includes every state in the loop. \red{Is there a naive approach to start from?}
+
+\begin{algorithm}
+\SetKwFunction{KwFn}{Procedure \feasible}
+\KwFn{$T,\preds,\abs{\pi}$}
+\Begin{
+    $\abs{s_0},\dots,\abs{s_n} := \abs{\pi}$ \;
+    \If{$\bigwedge_{0 \leq i < n} T(X^i, X^{i+1}) \land \bigwedge_{0 < i \leq n}
+    \abs{s_i}(X^i_\preds)[X^i_\preds \mapsto \preds^i]$ is unsat}{
+        \tcp{Compute sequence interpolant (Section 3.3~\cite{cimatti2016infinite})}
+        \Return{New set of predicates}
+    } \Else{
+        \Return{Satisfiable assignment to if condition}
+    }
+}
+\;
+\SetKwFunction{KwFn}{Procedure \feasibleloop}
+\KwFn{$T,\preds,\abs{\pi}$}
+\Begin{
+    $\abs{s_0},\dots,\abs{s_n} := \abs{\pi}$ \;
+    \If{$\bigwedge_{0 \leq i < k} T(X^i, X^{i+1}) \land \bigwedge_{0 < i \leq k}
+    \abs{s_i}(X^i_\preds)[X^i_\preds \mapsto \preds^i]$ is unsat}{
+        \tcp{Compute sequence interpolant (Section 3.3~\cite{cimatti2016infinite})}
+        \Return{New set of predicates}
+    } \Else{
+        $R := \synthrank(T,\abs{\pi})$ \tcp{Using technique on p11 of \cite{daniel2016infinite}}
+        \tcp{\red{How to use $R$ to block $\abs{\pi}$ in $T$?}}
+        \tcp{\red{For now, assume we find some formula $R_T$ such that $\abs{T} \land \abs{R_T}$ does not admit $\abs{\pi}$}}
+        \Return{$R_T$}
+    }
+}
+\caption{Feasibility checking}
+\label{alg:feasible}
+\end{algorithm}
+
+\subsection{Example}
+
+% TODO: Concrete example
+% Consider a counter with property like I:= x=0 /\ n>0, T:= x'=x+1 /\ n'=n /\ (x==n)->q, P:= GFq 
+% Then adding ranking function n-x to property like: GF(n-x>=0) -> G!q (?)
+
+We consider an example system to illustrate how to use ranking functions to block spurious counterexamples in \rlive.
+\begin{align*}
+    V & = \{x,n\} \\
+    I & := x = 0 \land n > 0 \\
+    T & := x' = x + 1 \land n' = n \\
+    P & := GF(x=n)
+\end{align*}
+In a naive version of the algorithm (Algorithm~\ref{alg:rlive}), the call to \mcconc{} will find  
+
+A ranking function that can be used to prove $F(x=n)$ is $R(V) = n-x$.
+
+\bibliographystyle{plain}
+\bibliography{rlive}
+
+\end{document}
+
+
+
+
+% \begin{algorithm}
+% \SetKwFunction{KwFn}{Procedure \textsf{rlive-4}}
+% \KwFn{$I,T,FGq$}
+% \Begin{
+%     $C := false$ \tcp{Shoals}
+%     $\preds := $ predicates in $I$, $q$ \;
+%     \While{$\mcabs(I, T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe}{
+%         $\abs{B} := $ empty stack of states \;
+%         $\abs{\Pi} := \emptyset$ \tcp{empty trace}
+%         $\abs{\pi} := \getabsmccex()$ \;
+%         \If {$\neg \feasible(I, T \land (\neg C \land \neg C'), \preds, \abs{\pi})$} {
+%             $I,T,\preds := \refine(I,T,FGq,\preds,\abs{\pi})$ \;
+%             \textbf{continue} \;
+%         }
+%         $\abs{\Pi} := \abs{\pi}$ \;
+%         $\abs{s} := \abs{\pi}[-1]$ \;
+%         $\abs{B}.push(\abs{s})$ \;
+%         \While{$\abs{B}$ is not empty}{
+%             $\abs{s} := \abs{B}.pop()$ \;
+%             \If{$\exists \abs{b} \in \abs{B} : \abs{s} \rightarrow \abs{b}$}{
+%                 \If{$\feasible(I,T,\preds,\abs{\Pi})$} {
+%                     \Return{Unsafe}
+%                 } \Else{
+%                     $I,T,\preds := \refine(I,T,FGq,\preds,\abs{\pi})$ \;
+%                     \textbf{break} \tcp{jump to outer loop}
+%                 }
+%             } 
+%             \If{$\mcabs(T(s), T \land (\neg C \land \neg C'), \neg q \land T^{-1}(\neg C), \preds)$ is unsafe} {
+%                 $\abs{\pi} := \getabsmccex()$ \;
+%                 \If {$\neg \feasible(I, T \land (\neg C \land \neg C'), \preds, \abs{\Pi} \cdot \abs{\pi})$} {
+%                     $I,T,\preds := \refine(I,T,FGq,\preds,\abs{\pi})$ \;
+%                     \textbf{break} \tcp{jump to outer loop}
+%                 }
+%                 $\abs{\Pi} := \abs{\Pi} \cdot \abs{\pi}$ \;
+%                 $\abs{t} := \abs{\pi}[-1]$ \;
+%                 $\abs{B}.push(\abs{s})$ \;
+%                 $\abs{B}.push(\abs{t})$ \;
+%             } \Else {
+%                 $inv := $ invariant from \mcabs \;
+%                 $C := C \lor inv$ \; 
+%             }
+%         }
+%     }
+%     \Return{Safe}
+% }
+% \caption{Eager refinement, local predicate refinement}
+% \label{alg:4}
+% \end{algorithm}
