@@ -1,6 +1,6 @@
-\documentclass{article}
+\documentclass[runningheads]{llncs}
+
 \usepackage{amsmath}
-\usepackage{fullpage}
 \usepackage{hyperref}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -46,8 +46,19 @@
 \begin{document}
 
 \title{Infinite-state rlive}
+\titlerunning{Infinite-state rlive}
+
 \author{Christopher Johannsen}
-\maketitle
+\institute{Iowa State University, \{cgjohann\}@iastate.edu}
+
+\authorrunning{C. Johannsen}
+\maketitle             
+
+% \vspace{-0.3in}
+\begin{abstract}
+\noindent Placeholder abstract       
+\keywords{Mission-time Linear Temporal Logic (MLTL)  \and First Order Logic \and Runtime Verification.}
+\end{abstract}
 
 \section{Preliminaries}
 
@@ -396,11 +407,22 @@ We consider an example system to illustrate how to use ranking functions to bloc
     V & = \{x,n\} \\
     I & := x = 0 \land n > 0 \\
     T & := x' = x + 1 \land n' = n \\
-    P & := GF(x=n)
+    P & := FG(x>n) \\
+    \preds & := \{ x=0, n>0, x>n \}
 \end{align*}
-In a naive version of the algorithm (Algorithm~\ref{alg:rlive}), the call to \mcconc{} will find  
+In a naive version of the algorithm (Algorithm~\ref{alg:rlive}), the algorithm will find a counterexample of the form:
+\[
+    (x=0,n>0,\neg(x>n)), (\neg(x=0),n>0,\neg(x>n)), (\neg(x=0),n>0,\neg(x>n)), \dots
+\]
+where the second state in the trace has a self-loop. The question is how to equip \rlive with the
+ability to block such counterexamples.
 
-A ranking function that can be used to prove $F(x=n)$ is $R(V) = n-x$.
+A ranking function that can be used to prove $FG(x>n)$ is $R(V) = n-x$. Assuming we can represent the function as a well-founded relation $W$, we can use this fact to search for a different property upon refinement: 
+\[
+    P := G(\neg W) \rightarrow FG(x>n)
+\]
+\red{I'm not totally sure what the well-founded relation is exactly -- it describes pairs of states where the ranking function is true? The basic idea behind refining the property is to search for the same property under the condition that none of the ranking functions hold.}
+
 
 \bibliographystyle{plain}
 \bibliography{rlive}
