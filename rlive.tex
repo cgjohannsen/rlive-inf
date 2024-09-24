@@ -419,7 +419,7 @@ ability to block such counterexamples.
 
 A ranking function that can be used to prove $FG(x>n)$ is $R(V) = n-x$. Assuming we can represent the function as a well-founded relation $W$, we can use this fact to search for a different property upon refinement: 
 \[
-    P := G(\neg W) \rightarrow FG(x>n)
+    P := FG(W \lor x>n)
 \]
 \red{I'm not totally sure what the well-founded relation is exactly -- it describes pairs of states where the ranking function is true? The basic idea behind refining the property is to search for the same property under the condition that none of the ranking functions hold.}
 
